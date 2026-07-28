@@ -30,10 +30,18 @@ const FALLBACK_GENRES: GenreItem[] = [
   { name: "古风权谋", description: "朝堂暗涌，步步为营" },
 ];
 
+const WORD_COUNT_OPTIONS = [
+  { label: "短篇", value: 1000, desc: "约1000字" },
+  { label: "中篇", value: 2000, desc: "约2000字" },
+  { label: "长篇", value: 3000, desc: "约3000字" },
+  { label: "超长", value: 5000, desc: "约5000字" },
+];
+
 export default function Home() {
   const [state, setState] = useState<AppState>("idle");
   const [genres, setGenres] = useState<GenreItem[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<string>("");
+  const [wordCount, setWordCount] = useState<number>(2000);
   const [novelContent, setNovelContent] = useState<string>("");
   const [scriptContent, setScriptContent] = useState<string>("");
   const [copied, setCopied] = useState(false);
@@ -71,7 +79,7 @@ export default function Home() {
       const res = await fetch("/api/generate-novel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ genre }),
+        body: JSON.stringify({ genre, wordCount }),
       });
 
       if (!res.ok || !res.body) {
@@ -190,6 +198,7 @@ export default function Home() {
     setState("idle");
     setGenres([]);
     setSelectedGenre("");
+    setWordCount(2000);
     setNovelContent("");
     setScriptContent("");
     setCopied(false);
@@ -261,9 +270,54 @@ export default function Home() {
                 选择你感兴趣的类型
               </h2>
               <p className="text-sm" style={{ color: "#8A8A8A" }}>
-                点击类型卡片，先生成小说预览
+                先设置小说字数，再点击类型卡片生成
               </p>
             </div>
+
+            {/* Word Count Selector */}
+            <div className="mb-8">
+              <p
+                className="text-sm font-medium mb-3 text-center"
+                style={{ color: "#2C2C2C" }}
+              >
+                小说字数
+              </p>
+              <div className="flex justify-center gap-3">
+                {WORD_COUNT_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setWordCount(option.value)}
+                    className="px-5 py-2.5 rounded-md text-sm transition-all duration-200 cursor-pointer"
+                    style={{
+                      backgroundColor: wordCount === option.value ? "#2C2C2C" : "#F5F3EF",
+                      color: wordCount === option.value ? "#FAFAF8" : "#2C2C2C",
+                      border: `1px solid ${wordCount === option.value ? "#2C2C2C" : "#E8E4DE"}`,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (wordCount !== option.value) {
+                        e.currentTarget.style.borderColor = "#B8977E";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (wordCount !== option.value) {
+                        e.currentTarget.style.borderColor = "#E8E4DE";
+                      }
+                    }}
+                  >
+                    <span className="font-medium">{option.label}</span>
+                    <span
+                      className="ml-1.5 text-xs"
+                      style={{
+                        color: wordCount === option.value ? "#B8B8B8" : "#8A8A8A",
+                      }}
+                    >
+                      {option.desc}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <GenreCards genres={genres} onSelect={handleSelectGenre} />
           </div>
         )}
