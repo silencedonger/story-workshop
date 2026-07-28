@@ -4,7 +4,7 @@ import type { Message } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
-    const { genre } = await request.json();
+    const { genre, novelContent } = await request.json();
 
     if (!genre || typeof genre !== "string") {
       return NextResponse.json(
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     const systemPrompt = `你是一位专业的漫剧小说剧本创作者，擅长将小说改编为适合漫画/动画制作的剧本格式。你的创作风格生动、画面感强，对话精炼有力。
 
-请根据用户指定的小说类型，创作一部完整的漫剧小说剧本。输出格式要求如下：
+请根据用户提供的小说内容，将其改编为完整的漫剧小说剧本。保留原作的人物、情节和风格，但转换为适合漫画/动画的剧本格式。输出格式要求如下：
 
 # 《小说标题》
 
@@ -98,9 +98,13 @@ export async function POST(request: NextRequest) {
 4. 分镜提示具体、可执行
 5. 内容积极向上，富有感染力`;
 
+    const userMessage = novelContent
+      ? `以下是已创作的小说内容，请将其改编为漫剧剧本：\n\n${novelContent}`
+      : `请为我创作一部「${genre}」类型的漫剧小说剧本，要求内容完整、情节精彩、人物鲜明。`;
+
     const messages: Message[] = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `请为我创作一部「${genre}」类型的漫剧小说剧本，要求内容完整、情节精彩、人物鲜明。` },
+      { role: "user", content: userMessage },
     ];
 
     const stream = client.stream(messages, {

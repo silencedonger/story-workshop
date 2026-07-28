@@ -15,22 +15,29 @@
 src/
 ├── app/
 │   ├── api/
-│   │   ├── search-genres/route.ts   # POST - 联网搜索热门小说类型
-│   │   └── generate-script/route.ts # POST - SSE流式生成剧本
+│   │   ├── search-genres/route.ts    # POST - 联网搜索热门小说类型
+│   │   ├── generate-novel/route.ts   # POST - SSE流式生成小说
+│   │   └── generate-script/route.ts  # POST - SSE流式生成剧本（基于小说改编）
 │   ├── layout.tsx
-│   ├── page.tsx                     # 主页面（状态机驱动）
-│   └── globals.css                  # 全局样式 + 设计令牌
+│   ├── page.tsx                      # 主页面（状态机驱动）
+│   └── globals.css                   # 全局样式 + 设计令牌
 ├── components/
-│   ├── GenreCards.tsx               # 类型选择卡片组件
-│   ├── LoadingAnimation.tsx         # 墨点扩散加载动画
-│   └── ScriptDisplay.tsx            # 剧本展示 + Markdown渲染
+│   ├── GenreCards.tsx                # 类型选择卡片组件
+│   ├── LoadingAnimation.tsx          # 墨点扩散加载动画
+│   └── ScriptDisplay.tsx             # 内容展示 + Markdown渲染
 └── lib/utils.ts
 ```
 
 ## 核心功能
 1. **搜索热门类型** - 使用 coze-coding-dev-sdk 的 SearchClient 联网搜索
-2. **流式生成剧本** - 使用 coze-coding-dev-sdk 的 LLMClient 流式输出
-3. **Markdown渲染** - 自定义轻量解析器，支持标题/粗体/斜体/列表/分隔线
+2. **流式生成小说** - 使用 LLMClient 流式输出小说内容
+3. **小说预览确认** - 用户预览小说，满意点绿色按钮生成剧本，不满意点红色按钮重选
+4. **流式生成剧本** - 基于已生成的小说内容，改编为漫剧剧本格式
+5. **Markdown渲染** - 自定义轻量解析器，支持标题/粗体/斜体/列表/分隔线
+
+## 交互流程
+idle → searching → choosing → generating_novel → novel_preview → (绿色按钮) generating_script → done
+                                                              → (红色按钮) choosing
 
 ## 构建命令
 - 开发：`pnpm run dev`
