@@ -35,6 +35,8 @@ const WORD_COUNT_OPTIONS = [
   { label: "中篇", value: 2000, desc: "约2000字" },
   { label: "长篇", value: 3000, desc: "约3000字" },
   { label: "超长", value: 5000, desc: "约5000字" },
+  { label: "巨篇", value: 8000, desc: "约8000字" },
+  { label: "自定义", value: 0, desc: "自定义字数" },
 ];
 
 export default function Home() {
@@ -42,6 +44,8 @@ export default function Home() {
   const [genres, setGenres] = useState<GenreItem[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<string>("");
   const [wordCount, setWordCount] = useState<number>(2000);
+  const [customWordCount, setCustomWordCount] = useState<string>("");
+  const [isCustomWordCount, setIsCustomWordCount] = useState(false);
   const [novelContent, setNovelContent] = useState<string>("");
   const [scriptContent, setScriptContent] = useState<string>("");
   const [copied, setCopied] = useState(false);
@@ -75,11 +79,13 @@ export default function Home() {
     setScriptContent("");
     setState("generating_novel");
 
+    const finalWordCount = isCustomWordCount ? (parseInt(customWordCount, 10) || 2000) : wordCount;
+
     try {
       const res = await fetch("/api/generate-novel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ genre, wordCount }),
+        body: JSON.stringify({ genre, wordCount: finalWordCount }),
       });
 
       if (!res.ok || !res.body) {
@@ -199,6 +205,8 @@ export default function Home() {
     setGenres([]);
     setSelectedGenre("");
     setWordCount(2000);
+    setCustomWordCount("");
+    setIsCustomWordCount(false);
     setNovelContent("");
     setScriptContent("");
     setCopied(false);
@@ -282,40 +290,84 @@ export default function Home() {
               >
                 小说字数
               </p>
-              <div className="flex justify-center gap-3">
-                {WORD_COUNT_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setWordCount(option.value)}
-                    className="px-5 py-2.5 rounded-md text-sm transition-all duration-200 cursor-pointer"
-                    style={{
-                      backgroundColor: wordCount === option.value ? "#2C2C2C" : "#F5F3EF",
-                      color: wordCount === option.value ? "#FAFAF8" : "#2C2C2C",
-                      border: `1px solid ${wordCount === option.value ? "#2C2C2C" : "#E8E4DE"}`,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (wordCount !== option.value) {
-                        e.currentTarget.style.borderColor = "#B8977E";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (wordCount !== option.value) {
-                        e.currentTarget.style.borderColor = "#E8E4DE";
-                      }
-                    }}
-                  >
-                    <span className="font-medium">{option.label}</span>
-                    <span
-                      className="ml-1.5 text-xs"
+              <div className="flex flex-wrap justify-center gap-3">
+                {WORD_COUNT_OPTIONS.map((option) => {
+                  const isSelected = option.value === 0
+                    ? isCustomWordCount
+                    : !isCustomWordCount && wordCount === option.value;
+
+                  return (
+                    <button
+                      key={option.label}
+                      onClick={() => {
+                        if (option.value === 0) {
+                          setIsCustomWordCount(true);
+                        } else {
+                          setIsCustomWordCount(false);
+                          setWordCount(option.value);
+                        }
+                      }}
+                      className="px-5 py-2.5 rounded-md text-sm transition-all duration-200 cursor-pointer"
                       style={{
-                        color: wordCount === option.value ? "#B8B8B8" : "#8A8A8A",
+                        backgroundColor: isSelected ? "#2C2C2C" : "#F5F3EF",
+                        color: isSelected ? "#FAFAF8" : "#2C2C2C",
+                        border: `1px solid ${isSelected ? "#2C2C2C" : "#E8E4DE"}`,
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.borderColor = "#B8977E";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.borderColor = "#E8E4DE";
+                        }
                       }}
                     >
-                      {option.desc}
-                    </span>
-                  </button>
-                ))}
+                      <span className="font-medium">{option.label}</span>
+                      <span
+                        className="ml-1.5 text-xs"
+                        style={{
+                          color: isSelected ? "#B8B8B8" : "#8A8A8A",
+                        }}
+                      >
+                        {option.desc}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
+
+              {/* Custom Word Count Input */}
+              {isCustomWordCount && (
+                <div className="mt-4 flex justify-center animate-fade-in">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={customWordCount}
+                      onChange={(e) => setCustomWordCount(e.target.value)}
+                      placeholder="输入字数"
+                      min="500"
+                      max="20000"
+                      className="w-32 px-4 py-2 rounded-md text-sm text-center outline-none transition-all duration-200"
+                      style={{
+                        backgroundColor: "#F5F3EF",
+                        border: "1px solid #E8E4DE",
+                        color: "#2C2C2C",
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.borderColor = "#B8977E";
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.borderColor = "#E8E4DE";
+                      }}
+                    />
+                    <span className="text-sm" style={{ color: "#8A8A8A" }}>
+                      字（500-20000）
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <GenreCards genres={genres} onSelect={handleSelectGenre} />
