@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
-import type { Message } from "coze-coding-dev-sdk";
+
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,18 +14,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-    const config = new Config();
-    const client = new LLMClient(config, customHeaders);
-
     const systemPrompt = `你是一位专业的漫剧小说剧本创作者，擅长将小说改编为适合漫画/动画制作的剧本格式。你的创作风格生动、画面感强，对话精炼有力。
 
-请根据用户提供的小说内容，将其改编为完整的漫剧小说剧本。保留原作的人物、情节和风格，但转换为适合漫画/动画的剧本格式。输出格式要求如下：
+## 你的任务
+根据用户提供的小说内容，将其改编为完整的漫剧小说剧本。保留原作的人物、情节和风格，但转换为适合漫画/动画的剧本格式。
 
+## 输出格式要求
 # 《小说标题》
 
 ## 一、作品概述
-- 类型：xxx
+- 类型：${genre}
 - 主题：一句话概括核心主题
 - 风格基调：描述整体氛围
 
@@ -71,62 +70,88 @@ export async function POST(request: NextRequest) {
 
 *动作指示*：（描述角色的肢体动作、表情变化）
 
-**角色名**：（表情/动作提示）"对话内容"
-
 【分镜提示】
 - 镜头1：（描述画面构图，如"特写：主角紧握拳头的手"）
 - 镜头2：（描述画面构图，如"全景：城市夜景俯瞰"）
 - 镜头3：（描述画面构图）
 
----
-
-**场景2：场景名称**
+### 第2集：集名
 （同上格式）
 
----
-
-### 第2集：集名
-（同上格式，至少包含2个场景）
-
 ### 第3集：集名
-（同上格式，至少包含2个场景）
-
-请确保：
-1. 对话生动自然，符合角色性格
-2. 场景描述有强烈的画面感，便于漫画分镜
-3. 每集都有明确的冲突和悬念
-4. 分镜提示具体、可执行
-5. 内容积极向上，富有感染力`;
+（同上格式）`;
 
     const userMessage = novelContent
-      ? `以下是已创作的小说内容，请将其改编为漫剧剧本：\n\n${novelContent}`
-      : `请为我创作一部「${genre}」类型的漫剧小说剧本，要求内容完整、情节精彩、人物鲜明。`;
+      ? `以下是我创作的小说，请将其改编为漫剧剧本：\n\n${novelContent}`
+      : `请直接创作一篇「${genre}」类型小说的漫剧剧本（包含完整的人物设定、故事大纲和分集剧本）。`;
 
-    const messages: Message[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
-    ];
-
-    const stream = client.stream(messages, {
-      model: "doubao-seed-2-0-lite-260215",
-      temperature: 0.9,
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ],
+        stream: true,
+        temperature: 0.8,
+        max_tokens: 8192,
+      }),
     });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("DeepSeek API error:", response.status, error);
+      return NextResponse.json(
+        { success: false, error: "AI 生成服务暂时不可用" },
+        { status: 502 }
+      );
+    }
 
     const encoder = new TextEncoder();
     const readableStream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of stream) {
-            if (chunk.content) {
-              const data = `data: ${JSON.stringify({ content: chunk.content.toString() })}\n\n`;
-              controller.enqueue(encoder.encode(data));
+          const reader = response.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith("data: ")) continue;
+              const data = trimmed.slice(6);
+              if (data === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content || "";
+                if (content) {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ content })}\n\n`)
+                  );
+                }
+              } catch {
+                // skip malformed JSON
+              }
             }
           }
+        } catch (err) {
+          console.error("Stream error:", err);
+        } finally {
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
-        } catch (streamError) {
-          console.error("Stream error:", streamError);
-          controller.error(streamError);
         }
       },
     });

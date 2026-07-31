@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config, HeaderUtils, SearchClient } from "coze-coding-dev-sdk";
-import type { Message } from "coze-coding-dev-sdk";
+
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,39 +15,11 @@ export async function POST(request: NextRequest) {
     }
 
     const targetWords = typeof wordCount === "number" ? wordCount : 2000;
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-    const config = new Config();
 
-    // Step 1: 联网搜索该类型的资料
-    const searchClient = new SearchClient(config, customHeaders);
-    const searchQuery = `${genre}小说 热门作品 经典套路 流行元素 2025`;
-    const searchResults = await searchClient.advancedSearch(searchQuery, {
-      count: 5,
-      needSummary: true,
-      searchType: "web_summary",
-      timeRange: "oneYear",
-    });
-
-    const referenceInfo = searchResults?.web_items
-      ?.map((r) =>
-        `【参考：${r.title || "相关资料"}】\n${r.summary || r.snippet || ""}`
-      )
-      .filter(Boolean)
-      .join("\n\n") || "暂无搜索到相关资料。";
-
-    // Step 2: 基于搜索到的资料，流式生成小说
-    const client = new LLMClient(config, customHeaders);
-
-    const systemPrompt = `你是一位才华横溢的小说家，擅长将真实素材融入创作。
-
-## 你的任务
-根据用户指定的「小说类型」以及你搜索到的「参考资料」，创作一篇精彩的小说。
-
-## 参考资料（请基于以下真实素材进行创作）
-${referenceInfo}
+    const systemPrompt = `你是一位才华横溢的小说家，擅长创作各类题材的精彩小说。
 
 ## 创作要求
-1. 从参考资料中汲取灵感——可以借鉴热门作品的设定风格、流行元素、经典桥段，但必须创作全新的故事
+1. 创作一篇全新的「${genre}」类型小说
 2. 有吸引人的标题
 3. 开篇即入戏，迅速抓住读者注意力
 4. 人物形象鲜明，对话生动自然
@@ -63,32 +36,75 @@ ${referenceInfo}
 
 *（完）*`;
 
-    const messages: Message[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `请参考以上资料，为我创作一篇「${genre}」类型的小说，要求情节精彩、文笔优美、画面感强，字数控制在${targetWords}字左右。` },
-    ];
-
-    const stream = client.stream(messages, {
-      model: "doubao-seed-2-0-lite-260215",
-      temperature: 0.9,
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `请为我创作一篇「${genre}」类型的小说，要求情节精彩、文笔优美、画面感强，字数控制在${targetWords}字左右。`,
+          },
+        ],
+        stream: true,
+        temperature: 0.9,
+        max_tokens: targetWords * 3,
+      }),
     });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("DeepSeek API error:", response.status, error);
+      return NextResponse.json(
+        { success: false, error: "AI 生成服务暂时不可用" },
+        { status: 502 }
+      );
+    }
 
     const encoder = new TextEncoder();
     const readableStream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of stream) {
-            if (chunk.content) {
-              const data = `data: ${JSON.stringify({ content: chunk.content.toString() })}\n\n`;
-              controller.enqueue(encoder.encode(data));
+          const reader = response.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith("data: ")) continue;
+              const data = trimmed.slice(6);
+              if (data === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content || "";
+                if (content) {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ content })}\n\n`)
+                  );
+                }
+              } catch {
+                // skip malformed JSON
+              }
             }
           }
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        } catch (e) {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ error: "生成中断" })}\n\n`)
-          );
+        } catch (err) {
+          console.error("Stream error:", err);
         } finally {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         }
       },
@@ -102,7 +118,7 @@ ${referenceInfo}
       },
     });
   } catch (error) {
-    console.error("生成小说失败:", error);
+    console.error("Generate novel error:", error);
     return NextResponse.json(
       { success: false, error: "生成小说失败" },
       { status: 500 }

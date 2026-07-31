@@ -9,7 +9,6 @@ type AppState =
   | "idle"
   | "searching"
   | "choosing"
-  | "searching_material"
   | "generating_novel"
   | "novel_preview"
   | "generating_script"
@@ -19,17 +18,6 @@ interface GenreItem {
   name: string;
   description: string;
 }
-
-const FALLBACK_GENRES: GenreItem[] = [
-  { name: "都市爽文", description: "现代都市背景，主角逆袭崛起" },
-  { name: "甜宠言情", description: "甜蜜恋爱，高糖互动" },
-  { name: "悬疑推理", description: "烧脑推理，层层揭秘" },
-  { name: "玄幻修仙", description: "仙道争锋，修炼成神" },
-  { name: "穿越重生", description: "重回过去，改写命运" },
-  { name: "无限流", description: "副本闯关，生死博弈" },
-  { name: "末日废土", description: "废墟求生，重建文明" },
-  { name: "古风权谋", description: "朝堂暗涌，步步为营" },
-];
 
 const WORD_COUNT_OPTIONS = [
   { label: "短篇", value: 1000, desc: "约1000字" },
@@ -58,18 +46,17 @@ export default function Home() {
       const data = await res.json();
 
       if (data.success && data.results?.length > 0) {
-        const extracted = extractGenres(data.results, data.summary);
-        if (extracted.length >= 4) {
-          setGenres(extracted.slice(0, 8));
-        } else {
-          setGenres(FALLBACK_GENRES);
-        }
+        const mapped = data.results.map((item: { title: string; snippet: string }) => ({
+          name: item.title,
+          description: item.snippet,
+        }));
+        setGenres(mapped.slice(0, 8));
       } else {
-        setGenres(FALLBACK_GENRES);
+        setGenres([]);
       }
       setState("choosing");
     } catch {
-      setGenres(FALLBACK_GENRES);
+      setGenres([]);
       setState("choosing");
     }
   }, []);
@@ -78,7 +65,7 @@ export default function Home() {
     setSelectedGenre(genre);
     setNovelContent("");
     setScriptContent("");
-    setState("searching_material");
+    setState("generating_novel");
 
     const finalWordCount = isCustomWordCount ? (parseInt(customWordCount, 10) || 2000) : wordCount;
 
@@ -377,26 +364,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Searching Material State */}
-        {state === "searching_material" && (
-          <div className="animate-fade-in text-center py-20">
-            <div className="inline-flex items-center gap-3 mb-6">
-              <div className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: "#B8977E" }}></div>
-              <div className="w-2 h-2 rounded-full animate-ping animation-delay-200" style={{ backgroundColor: "#B8977E" }}></div>
-              <div className="w-2 h-2 rounded-full animate-ping animation-delay-400" style={{ backgroundColor: "#B8977E" }}></div>
-            </div>
-            <p
-              className="text-lg font-medium mb-2"
-              style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
-            >
-              正在搜索「{selectedGenre}」相关资料
-            </p>
-            <p className="text-sm" style={{ color: "#8A8A8A" }}>
-              联网查找热门作品、流行元素与经典设定...
-            </p>
-          </div>
-        )}
-
         {/* Generating Novel State */}
         {state === "generating_novel" && (
           <div className="animate-fade-in">
@@ -546,34 +513,4 @@ export default function Home() {
   );
 }
 
-function extractGenres(
-  results: Array<{ title: string; snippet: string; summary?: string }>,
-  summary: string
-): GenreItem[] {
-  const combined = summary + " " + results.map((r) => r.title + " " + r.snippet).join(" ");
 
-  const genrePatterns: Array<{ name: string; description: string; keywords: string[] }> = [
-    { name: "都市爽文", description: "现代都市背景，主角逆袭崛起", keywords: ["都市", "爽文", "逆袭", "重生都市", "都市修真"] },
-    { name: "甜宠言情", description: "甜蜜恋爱，高糖互动", keywords: ["甜宠", "言情", "恋爱", "总裁", "校园恋爱", "高甜"] },
-    { name: "悬疑推理", description: "烧脑推理，层层揭秘", keywords: ["悬疑", "推理", "侦探", "破案", "烧脑"] },
-    { name: "玄幻修仙", description: "仙道争锋，修炼成神", keywords: ["玄幻", "修仙", "仙侠", "修真", "斗气"] },
-    { name: "穿越重生", description: "重回过去，改写命运", keywords: ["穿越", "重生", "重生文", "回到过去", "穿书"] },
-    { name: "无限流", description: "副本闯关，生死博弈", keywords: ["无限流", "副本", "闯关", "任务", "生存游戏"] },
-    { name: "末日废土", description: "废墟求生，重建文明", keywords: ["末日", "废土", "丧尸", "求生", "末世"] },
-    { name: "古风权谋", description: "朝堂暗涌，步步为营", keywords: ["古风", "权谋", "宫斗", "宅斗", "朝堂", "古代"] },
-    { name: "科幻星际", description: "星际探索，未来科技", keywords: ["科幻", "星际", "未来", "机甲", "赛博"] },
-    { name: "灵异惊悚", description: "诡异事件，心跳加速", keywords: ["灵异", "惊悚", "恐怖", "鬼怪", "诡异"] },
-    { name: "游戏竞技", description: "电竞热血，荣耀征途", keywords: ["游戏", "电竞", "网游", "竞技", "荣耀"] },
-    { name: "历史架空", description: "架空朝代，风云变幻", keywords: ["历史", "架空", "三国", "争霸", "乱世"] },
-  ];
-
-  const matched: GenreItem[] = [];
-  for (const pattern of genrePatterns) {
-    const found = pattern.keywords.some((kw) => combined.includes(kw));
-    if (found) {
-      matched.push({ name: pattern.name, description: pattern.description });
-    }
-  }
-
-  return matched;
-}
