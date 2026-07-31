@@ -9,6 +9,7 @@ type AppState =
   | "idle"
   | "searching"
   | "choosing"
+  | "searching_material"
   | "generating_novel"
   | "novel_preview"
   | "generating_script"
@@ -77,7 +78,7 @@ export default function Home() {
     setSelectedGenre(genre);
     setNovelContent("");
     setScriptContent("");
-    setState("generating_novel");
+    setState("searching_material");
 
     const finalWordCount = isCustomWordCount ? (parseInt(customWordCount, 10) || 2000) : wordCount;
 
@@ -91,6 +92,8 @@ export default function Home() {
       if (!res.ok || !res.body) {
         throw new Error("生成请求失败");
       }
+
+      setState("generating_novel");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -371,6 +374,26 @@ export default function Home() {
             </div>
 
             <GenreCards genres={genres} onSelect={handleSelectGenre} />
+          </div>
+        )}
+
+        {/* Searching Material State */}
+        {state === "searching_material" && (
+          <div className="animate-fade-in text-center py-20">
+            <div className="inline-flex items-center gap-3 mb-6">
+              <div className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: "#B8977E" }}></div>
+              <div className="w-2 h-2 rounded-full animate-ping animation-delay-200" style={{ backgroundColor: "#B8977E" }}></div>
+              <div className="w-2 h-2 rounded-full animate-ping animation-delay-400" style={{ backgroundColor: "#B8977E" }}></div>
+            </div>
+            <p
+              className="text-lg font-medium mb-2"
+              style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
+            >
+              正在搜索「{selectedGenre}」相关资料
+            </p>
+            <p className="text-sm" style={{ color: "#8A8A8A" }}>
+              联网查找热门作品、流行元素与经典设定...
+            </p>
           </div>
         )}
 
