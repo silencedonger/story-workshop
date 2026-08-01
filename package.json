@@ -6,7 +6,6 @@
     "build": "next build",
     "dev": "next dev",
     "start": "next start",
-    "preinstall": "npx only-allow pnpm",
     "lint": "eslint",
     "lint:build": "eslint . --quiet",
     "lint:style": "stylelint \"src/**/*.css\"",
