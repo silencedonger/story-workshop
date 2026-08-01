@@ -174,9 +174,6 @@ importers:
         specifier: ^4.3.5
         version: 4.3.6
     devDependencies:
-      '@react-dev-inspector/babel-plugin':
-        specifier: ^2.0.1
-        version: 2.0.1
       '@react-dev-inspector/middleware':
         specifier: ^2.0.1
         version: 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12)(postcss@8.5.6))
