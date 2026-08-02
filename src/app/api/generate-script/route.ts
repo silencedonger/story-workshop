@@ -1,29 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const AI_PROVIDERS = [
-  {
-    name: "通义千问",
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    model: "qwen-max",
-    apiKey: process.env.QWEN_API_KEY || "",
-  },
-  {
-    name: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    model: "deepseek-chat",
-    apiKey: process.env.DEEPSEEK_API_KEY || "",
-  },
-  {
-    name: "智谱清言",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    model: "glm-4-flash",
-    apiKey: process.env.ZHIPU_API_KEY || "",
-  },
-];
-
-function getAvailableProviders() {
-  return AI_PROVIDERS.filter((p) => p.apiKey);
-}
+import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +11,11 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
+
+    const config = new Config();
+    const client = new LLMClient(config, customHeaders);
 
     const systemPrompt = `你是一位经验丰富的漫剧编剧，擅长将小说改编为适合漫画/动画拍摄的剧本。
 
@@ -65,95 +46,52 @@ export async function POST(request: NextRequest) {
 **对白/动作：**（角色对话和动作指示）
 `;
 
-    // 如果提供了小说内容，组装用户消息
     const userMessage = novelContent
       ? `以下是我创作的小说内容，请将其改编为漫剧剧本：\n\n${novelContent}`
       : `请根据「${genre}」类型，创作一部完整的漫剧剧本，包含标题、人物设定、故事大纲和至少3集的分镜剧本内容。`;
 
-    const providers = getAvailableProviders();
-    if (providers.length === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "未配置 API Key，请先注册任意平台的免费 API Key",
-        },
-        { status: 400 }
-      );
-    }
+    const messages = [
+      { role: "system", content: systemPrompt } as const,
+      { role: "user" as const, content: userMessage },
+    ];
 
-    for (const provider of providers) {
-      try {
-        const response = await fetch(`${provider.baseUrl}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${provider.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: provider.model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userMessage },
-            ],
-            stream: true,
-            temperature: 0.85,
-            max_tokens: 8192,
-          }),
-        });
+    const stream = client.stream(messages, {
+      model: "doubao-seed-1-8-251228",
+      temperature: 0.85,
+    });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(
-            `${provider.name} API error: ${response.status} ${errorText}`
+    const encoder = new TextEncoder();
+    const responseStream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            if (chunk.content) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ content: chunk.content.toString() })}\n\n`)
+              );
+            }
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        } catch (error) {
+          console.error("Streaming error:", error);
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ error: "生成过程出错，请重试" })}\n\n`
+            )
           );
-          continue;
+          controller.close();
         }
-
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          async start(controller) {
-            const reader = response.body?.getReader();
-            if (!reader) {
-              controller.close();
-              return;
-            }
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                controller.enqueue(value);
-              }
-            } catch (e) {
-              console.error("Stream error:", e);
-            } finally {
-              reader.releaseLock();
-              controller.close();
-            }
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-            "X-AI-Provider": provider.name,
-          },
-        });
-      } catch (e) {
-        console.error(`${provider.name} 请求失败:`, e);
-        continue;
-      }
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "所有 AI 生成服务均不可用，请检查 API Key 是否有效或余额是否充足",
       },
-      { status: 502 }
-    );
+    });
+
+    return new Response(responseStream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
   } catch (error) {
     console.error("Generate script error:", error);
     return NextResponse.json(
