@@ -1,7 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const QWEN_API_KEY = process.env.QWEN_API_KEY || "";
-const QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+// 支持的 AI 平台配置
+const AI_PROVIDERS = [
+  {
+    name: "通义千问",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-max",
+    apiKey: process.env.QWEN_API_KEY || "",
+  },
+  {
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    model: "deepseek-chat",
+    apiKey: process.env.DEEPSEEK_API_KEY || "",
+  },
+  {
+    name: "智谱清言",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4-flash",
+    apiKey: process.env.ZHIPU_API_KEY || "",
+  },
+];
+
+function getAvailableProviders() {
+  return AI_PROVIDERS.filter((p) => p.apiKey);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,91 +59,100 @@ export async function POST(request: NextRequest) {
 
 *（完）*`;
 
-    const response = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${QWEN_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "qwen-max",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: `请为我创作一篇「${genre}」类型的小说，要求情节精彩、文笔优美、画面感强，字数控制在${targetWords}字左右。`,
-          },
-        ],
-        stream: true,
-        temperature: 0.9,
-        max_tokens: targetWords * 3,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error("DeepSeek API error:", response.status, error);
+    const providers = getAvailableProviders();
+    if (providers.length === 0) {
       return NextResponse.json(
-        { success: false, error: "AI 生成服务暂时不可用" },
-        { status: 502 }
+        {
+          success: false,
+          error: "未配置 API Key，请先注册任意平台的免费 API Key",
+        },
+        { status: 400 }
       );
     }
 
-    const encoder = new TextEncoder();
-    const readableStream = new ReadableStream({
-      async start(controller) {
-        try {
-          const reader = response.body!.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
+    // 逐个尝试可用的平台
+    for (const provider of providers) {
+      try {
+        const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${provider.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: provider.model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              {
+                role: "user",
+                content: `请为我创作一篇「${genre}」类型的小说，要求情节精彩、文笔优美、画面感强，字数控制在${targetWords}字左右。`,
+              },
+            ],
+            stream: true,
+            temperature: 0.9,
+            max_tokens: targetWords * 3,
+          }),
+        });
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || !trimmed.startsWith("data: ")) continue;
-              const data = trimmed.slice(6);
-              if (data === "[DONE]") continue;
-
-              try {
-                const parsed = JSON.parse(data);
-                const content = parsed.choices?.[0]?.delta?.content || "";
-                if (content) {
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ content })}\n\n`)
-                  );
-                }
-              } catch {
-                // skip malformed JSON
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Stream error:", err);
-        } finally {
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(
+            `${provider.name} API error: ${response.status} ${errorText}`
+          );
+          continue; // 尝试下一个平台
         }
-      },
-    });
 
-    return new Response(readableStream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+        // 成功！返回流式响应
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            const reader = response.body?.getReader();
+            if (!reader) {
+              controller.close();
+              return;
+            }
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                controller.enqueue(value);
+              }
+            } catch (e) {
+              console.error("Stream error:", e);
+            } finally {
+              reader.releaseLock();
+              controller.close();
+            }
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            "X-AI-Provider": provider.name,
+          },
+        });
+      } catch (e) {
+        console.error(`${provider.name} 请求失败:`, e);
+        continue; // 尝试下一个平台
+      }
+    }
+
+    // 所有平台都失败了
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "所有 AI 生成服务均不可用，请检查 API Key 是否有效或余额是否充足",
       },
-    });
+      { status: 502 }
+    );
   } catch (error) {
     console.error("Generate novel error:", error);
     return NextResponse.json(
-      { success: false, error: "生成小说失败" },
+      { success: false, error: "生成小说时出现错误，请重试" },
       { status: 500 }
     );
   }
