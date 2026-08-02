@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
-const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
+const QWEN_API_KEY = process.env.QWEN_API_KEY || "";
+const QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,14 +36,14 @@ export async function POST(request: NextRequest) {
 
 *（完）*`;
 
-    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${QWEN_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "qwen-max",
         messages: [
           { role: "system", content: systemPrompt },
           {

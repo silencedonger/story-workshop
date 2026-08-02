@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
-const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
+const QWEN_API_KEY = process.env.QWEN_API_KEY || "";
+const QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
 export async function POST(request: NextRequest) {
   try {
@@ -85,14 +85,14 @@ export async function POST(request: NextRequest) {
       ? `以下是我创作的小说，请将其改编为漫剧剧本：\n\n${novelContent}`
       : `请直接创作一篇「${genre}」类型小说的漫剧剧本（包含完整的人物设定、故事大纲和分集剧本）。`;
 
-    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${QWEN_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "qwen-max",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
