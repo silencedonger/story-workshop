@@ -38,6 +38,7 @@ export default function Home() {
   const [novelContent, setNovelContent] = useState<string>("");
   const [scriptContent, setScriptContent] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  const [userIdea, setUserIdea] = useState<string>("");
 
   const handleSearchGenres = useCallback(async () => {
     setState("searching");
@@ -73,7 +74,7 @@ export default function Home() {
       const res = await fetch("/api/generate-novel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ genre, wordCount: finalWordCount }),
+        body: JSON.stringify({ genre, wordCount: finalWordCount, userIdea }),
       });
 
       if (!res.ok || !res.body) {
@@ -360,6 +361,39 @@ export default function Home() {
               )}
             </div>
 
+            {/* User Idea Input */}
+            <div className="mb-8 max-w-2xl mx-auto">
+              <p
+                className="text-sm font-medium mb-3 text-center"
+                style={{ color: "#2C2C2C" }}
+              >
+                你的创意想法（选填）
+              </p>
+              <textarea
+                value={userIdea}
+                onChange={(e) => setUserIdea(e.target.value)}
+                placeholder="写下你的想法，比如：主角是一个失忆的杀手，穿越到古代... 不填则 AI 自由创作"
+                rows={3}
+                maxLength={500}
+                className="w-full px-4 py-3 rounded-md text-sm resize-none outline-none transition-all duration-200"
+                style={{
+                  backgroundColor: "#F5F3EF",
+                  border: "1px solid #E8E4DE",
+                  color: "#2C2C2C",
+                  lineHeight: "1.6",
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "#B8977E";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "#E8E4DE";
+                }}
+              />
+              <p className="text-xs text-right mt-1" style={{ color: "#8A8A8A" }}>
+                {userIdea.length}/500
+              </p>
+            </div>
+
             <GenreCards genres={genres} onSelect={handleSelectGenre} />
           </div>
         )}
@@ -375,7 +409,7 @@ export default function Home() {
                 正在创作「{selectedGenre}」小说
               </p>
               <p className="text-sm" style={{ color: "#8A8A8A" }}>
-                AI 正在构思故事、人物与情节...
+                正在联网搜索爆火小说，解析核心要素...
               </p>
             </div>
             <ScriptDisplay content={novelContent} isStreaming={true} />

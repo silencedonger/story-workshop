@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
+import { LLMClient, SearchClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
-    const { genre, wordCount } = await request.json();
+    const { genre, wordCount, userIdea } = await request.json();
 
     if (!genre || typeof genre !== "string") {
       return NextResponse.json(
@@ -14,11 +14,47 @@ export async function POST(request: NextRequest) {
 
     const targetWords = typeof wordCount === "number" ? wordCount : 2000;
     const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-
     const config = new Config();
-    const client = new LLMClient(config, customHeaders);
+
+    // Step 1: 联网搜索该类型的爆火小说
+    const searchClient = new SearchClient(config, customHeaders);
+    let searchContext = "";
+    try {
+      const searchResult = await searchClient.advancedSearch(
+        `2025年最火爆的${genre}类型网络小说 排行榜 爆款 经典作品 核心看点 读者最爱`,
+        {
+          searchType: "web",
+          count: 8,
+          needSummary: true,
+          timeRange: "oneYear",
+        }
+      );
+      const webItems = searchResult.web_items || [];
+      searchContext = webItems
+        .map((item: { title: string; snippet: string }) => `${item.title}: ${item.snippet}`)
+        .join("\n");
+      if (searchResult.summary) {
+        searchContext = `【AI搜索摘要】${searchResult.summary}\n\n【具体作品信息】\n${searchContext}`;
+      }
+    } catch (searchErr) {
+      console.warn("Search failed, proceeding without search context:", searchErr);
+    }
+
+    // Step 2: 构建 prompt，结合搜索结果和用户想法
+    const ideaSection = userIdea && userIdea.trim()
+      ? `\n## 用户的创意想法\n用户有以下想法，请融入创作中：\n${userIdea.trim()}\n`
+      : "";
+
+    const searchSection = searchContext
+      ? `\n## 当前该类型爆火小说参考\n以下是当前网上最火的${genre}类型小说信息，请分析它们的核心吸引力（爽点、套路、人设、世界观等），融入你的创作中：\n${searchContext}\n`
+      : "";
 
     const systemPrompt = `你是一位才华横溢的小说家，擅长创作各类题材的精彩小说。
+
+## 创作流程
+1. 先分析当前爆火的${genre}类型小说的核心要素（爽点、套路、人设、世界观、节奏等）
+2. 结合这些核心要素，创作一篇全新的小说${userIdea ? "，同时融入用户的创意想法" : ""}
+3. 确保作品既有当下爆款的吸引力，又有独特的创新
 
 ## 创作要求
 1. 创作一篇全新的「${genre}」类型小说
@@ -28,7 +64,7 @@ export async function POST(request: NextRequest) {
 5. 情节有起伏，有转折，有悬念
 6. **字数要求：约${targetWords}字**（请严格控制篇幅）
 7. 画面感强，适合后续改编为漫画/动画
-
+${searchSection}${ideaSection}
 ## 输出格式
 # 《小说标题》
 
@@ -38,11 +74,13 @@ export async function POST(request: NextRequest) {
 
 *（完）*`;
 
+    // Step 3: 流式生成小说
+    const client = new LLMClient(config, customHeaders);
     const messages = [
       { role: "system", content: systemPrompt } as const,
       {
         role: "user" as const,
-        content: `请为我创作一篇「${genre}」类型的小说，要求情节精彩、文笔优美、画面感强，字数控制在${targetWords}字左右。`,
+        content: `请为我创作一篇「${genre}」类型的小说。要求：分析当前爆火作品的核心吸引力，融入创作中，写出既有爆款潜质又有创新的作品。字数控制在${targetWords}字左右。${userIdea ? `我的想法是：${userIdea}` : ""}`,
       },
     ];
 
@@ -86,7 +124,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Generate novel error:", error);
     return NextResponse.json(
-      { success: false, error: "生成小说时出现错误，请重试" },
+      { success: false, error: "AI 生成服务暂时不可用" },
       { status: 500 }
     );
   }
