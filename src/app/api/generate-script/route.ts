@@ -3,7 +3,8 @@ import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
-    const { genre, novelContent } = await request.json();
+    const { genre, novelContent, page, previousContent, currentScript } = await request.json();
+    const currentPage = page || 1;
 
     if (!genre || typeof genre !== "string") {
       return NextResponse.json(
@@ -40,15 +41,20 @@ export async function POST(request: NextRequest) {
 
 ## 三、分集剧本
 
-### 第1集：集名
+### 第X集：集名
 **场景：**（时间、地点、环境描述）
 **分镜：**（镜头建议、画面构图）
 **对白/动作：**（角色对话和动作指示）
 `;
 
-    const userMessage = novelContent
-      ? `以下是我创作的小说内容，请将其改编为漫剧剧本：\n\n${novelContent}`
-      : `请根据「${genre}」类型，创作一部完整的漫剧剧本，包含标题、人物设定、故事大纲和至少3集的分镜剧本内容。`;
+    let userMessage: string;
+    if (currentPage > 1 && previousContent) {
+      userMessage = `以下是我已经创作的小说内容和已生成的剧本，请继续往下生成第 ${currentPage} 部分的剧本内容，保持风格一致，从上一部分结束的地方继续。\n\n小说内容：\n${novelContent}\n\n已生成的剧本：\n${previousContent}`;
+    } else if (novelContent) {
+      userMessage = `以下是我创作的小说内容，请将其改编为漫剧剧本：\n\n${novelContent}`;
+    } else {
+      userMessage = `请根据「${genre}」类型，创作一部完整的漫剧剧本，包含标题、人物设定、故事大纲和至少3集的分镜剧本内容。`;
+    }
 
     const messages = [
       { role: "system", content: systemPrompt } as const,

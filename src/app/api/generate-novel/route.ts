@@ -3,11 +3,14 @@ import { LLMClient, SearchClient, Config, HeaderUtils } from "coze-coding-dev-sd
 
 export async function POST(request: NextRequest) {
   try {
-    const { genre, wordCount, userIdea } = await request.json();
+    const { genre, wordCount, userIdea, page, previousContent } = await request.json();
 
-    if (!genre || typeof genre !== "string") {
+    const currentPage = typeof page === "number" && page > 0 ? page : 1;
+    const isContinued = currentPage > 1 && previousContent;
+
+    if (!genre && !userIdea) {
       return NextResponse.json(
-        { success: false, error: "请提供小说类型" },
+        { success: false, error: "请提供小说类型或输入想法" },
         { status: 400 }
       );
     }
@@ -46,33 +49,33 @@ export async function POST(request: NextRequest) {
       : "";
 
     const searchSection = searchContext
-      ? `\n## 当前该类型爆火小说参考\n以下是当前网上最火的${genre}类型小说信息，请分析它们的核心吸引力（爽点、套路、人设、世界观等），融入你的创作中：\n${searchContext}\n`
+      ? `\n## 当前该类型爆火小说参考\n以下是当前网上最火的${genre || "热门"}类型小说信息，请分析它们的核心吸引力（爽点、套路、人设、世界观等），融入你的创作中：\n${searchContext}\n`
       : "";
+
+    const continueSection = isContinued
+      ? `\n## 续写任务\n以下是你已经创作了的内容，请继续往下写，保持风格和情节一致，不要重复已有内容：\n\n${previousContent}\n\n请从断点处继续写下去，添加新的情节发展。\n`
+      : "";
+
+    const genreLabel = genre || "热门";
 
     const systemPrompt = `你是一位才华横溢的小说家，擅长创作各类题材的精彩小说。
 
 ## 创作流程
-1. 先分析当前爆火的${genre}类型小说的核心要素（爽点、套路、人设、世界观、节奏等）
+1. 先分析当前爆火的${genreLabel}类型小说的核心要素（爽点、套路、人设、世界观、节奏等）
 2. 结合这些核心要素，创作一篇全新的小说${userIdea ? "，同时融入用户的创意想法" : ""}
 3. 确保作品既有当下爆款的吸引力，又有独特的创新
 
 ## 创作要求
-1. 创作一篇全新的「${genre}」类型小说
-2. 有吸引人的标题
+1. 创作一篇全新的「${genreLabel}」类型小说
+2. 有吸引人的标题${isContinued ? "（标题已在前文给出，不要重复）" : ""}
 3. 开篇即入戏，迅速抓住读者注意力
 4. 人物形象鲜明，对话生动自然
 5. 情节有起伏，有转折，有悬念
 6. **字数要求：约${targetWords}字**（请严格控制篇幅）
 7. 画面感强，适合后续改编为漫画/动画
-${searchSection}${ideaSection}
+${searchSection}${ideaSection}${continueSection}
 ## 输出格式
-# 《小说标题》
-
-（正文内容，适当分段，保持阅读节奏）
-
----
-
-*（完）*`;
+${isContinued ? "（直接续写正文，无需标题和开头，从断点处继续）" : "# 《小说标题》\n\n（正文内容，适当分段，保持阅读节奏）\n\n---\n\n*（完）*"}`;
 
     // Step 3: 流式生成小说
     const client = new LLMClient(config, customHeaders);
