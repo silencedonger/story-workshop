@@ -3,7 +3,7 @@ import { LLMClient, SearchClient, Config, HeaderUtils } from "coze-coding-dev-sd
 
 export async function POST(request: NextRequest) {
   try {
-    const { genre, wordCount, userIdea, page, previousContent } = await request.json();
+    const { genre, userIdea, page, previousContent } = await request.json();
 
     const currentPage = typeof page === "number" && page > 0 ? page : 1;
     const isContinued = currentPage > 1 && previousContent;
@@ -15,7 +15,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const targetWords = typeof wordCount === "number" ? wordCount : 2000;
+    // 每页生成约 2000 字，可无限续写
+    const targetWords = 2000;
     const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
     const config = new Config();
 

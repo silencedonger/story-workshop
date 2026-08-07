@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import GenreCards from "@/components/GenreCards";
 import ScriptDisplay from "@/components/ScriptDisplay";
 import LoadingAnimation from "@/components/LoadingAnimation";
 
 type AppState =
-  | "idle"
-  | "searching"
   | "choosing"
   | "generating_novel"
   | "novel_preview"
@@ -19,137 +17,156 @@ interface GenreItem {
   description: string;
 }
 
-const WORD_COUNT_OPTIONS = [
-  { label: "短篇", value: 1000, desc: "约1000字" },
-  { label: "中篇", value: 2000, desc: "约2000字" },
-  { label: "长篇", value: 3000, desc: "约3000字" },
-  { label: "超长", value: 5000, desc: "约5000字" },
-  { label: "巨篇", value: 8000, desc: "约8000字" },
-  { label: "史诗", value: 12000, desc: "约12000字" },
-  { label: "自定义", value: 0, desc: "自定义字数" },
-];
-
 export default function Home() {
-  const [state, setState] = useState<AppState>("idle");
+  const [state, setState] = useState<AppState>("choosing");
   const [genres, setGenres] = useState<GenreItem[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<string>("");
-  const [wordCount, setWordCount] = useState<number>(2000);
-  const [customWordCount, setCustomWordCount] = useState<string>("");
-  const [generatedContent, setGeneratedContent] = useState<string>("");
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [isGeneratingMore, setIsGeneratingMore] = useState<boolean>(false);
-  const [isCustomWordCount, setIsCustomWordCount] = useState(false);
   const [novelContent, setNovelContent] = useState<string>("");
   const [scriptContent, setScriptContent] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [userIdea, setUserIdea] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [isGeneratingMore, setIsGeneratingMore] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
 
-  const handleSearchGenres = useCallback(async () => {
-    setState("searching");
-    try {
-      const res = await fetch("/api/search-genres", { method: "POST" });
-      const data = await res.json();
-
-      if (data.success && data.results?.length > 0) {
-        const mapped = data.results.map((item: { title: string; snippet: string }) => ({
-          name: item.title,
-          description: item.snippet,
-        }));
-        setGenres(mapped.slice(0, 8));
-      } else {
-        setGenres([]);
-      }
-      setState("choosing");
-    } catch {
-      setGenres([]);
-      setState("choosing");
-    }
+  // 页面加载时自动获取热门类型
+  useEffect(() => {
+    fetch("/api/search-genres", { method: "POST" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.results?.length > 0) {
+          setGenres(
+            data.results.map((item: { title: string; snippet: string }) => ({
+              name: item.title,
+              description: item.snippet,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  const handleDirectGenerate = useCallback(async () => {
-    if (!userIdea.trim() || state !== "choosing") return;
-    setSelectedGenre(userIdea.trim().slice(0, 50));
-    setState("generating_novel");
-    setNovelContent("");
-    setCurrentPage(1);
-    setIsGeneratingMore(false);
+  const streamNovel = useCallback(
+    async (page: number, previousContent: string) => {
+      setError("");
+      try {
+        const res = await fetch("/api/generate-novel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            genre: selectedGenre || "自定义创作",
+            userIdea: userIdea.trim() || undefined,
+            page,
+            previousContent: previousContent || undefined,
+          }),
+        });
 
-    try {
-      const res = await fetch("/api/generate-novel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          genre: "自定义创作",
-          wordCount: wordCount,
-          userIdea: userIdea.trim(),
-          page: 1,
-        }),
-      });
+        if (!res.ok) {
+          setError("生成失败，请重试");
+          setState("choosing");
+          return;
+        }
 
-      if (!res.ok) {
-        setState("choosing");
-        return;
-      }
+        const reader = res.body?.getReader();
+        if (!reader) return;
 
-      const reader = res.body?.getReader();
-      if (!reader) return;
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-      const decoder = new TextDecoder();
-      let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") continue;
-
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.error) {
-              throw new Error(parsed.error);
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.error) {
+                setError(parsed.error);
+                setState("choosing");
+                return;
+              }
+              if (parsed.content) {
+                setNovelContent((prev) => prev + parsed.content);
+              }
+            } catch {
+              // ignore
             }
-            if (parsed.content) {
-              setNovelContent((prev) => prev + parsed.content);
-            }
-          } catch {
-            // ignore parse errors
           }
         }
+
+        setState("novel_preview");
+      } catch {
+        setError("生成失败，请重试");
+        setState("choosing");
       }
+    },
+    [selectedGenre, userIdea]
+  );
 
-      setState("novel_preview");
-    } catch {
-      setState("choosing");
-    }
-  }, [userIdea, state, wordCount]);
+  // 选择类型后生成小说
+  const handleSelectGenre = useCallback(
+    async (genre: string) => {
+      setSelectedGenre(genre);
+      setNovelContent("");
+      setScriptContent("");
+      setCurrentPage(1);
+      setIsGeneratingMore(false);
+      setState("generating_novel");
+      await streamNovel(1, "");
+    },
+    [streamNovel]
+  );
 
+  // 直接生成（跳过选类型，用想法生成）
+  const handleDirectGenerate = useCallback(async () => {
+    if (!userIdea.trim()) return;
+    setSelectedGenre("自定义创作");
+    setNovelContent("");
+    setScriptContent("");
+    setCurrentPage(1);
+    setIsGeneratingMore(false);
+    setState("generating_novel");
+    await streamNovel(1, "");
+  }, [userIdea, streamNovel]);
+
+  // 继续生成（无限续写）
   const handleContinueGenerate = useCallback(async () => {
     const nextPage = currentPage + 1;
     setCurrentPage(nextPage);
     setIsGeneratingMore(true);
     setState("generating_novel");
+    await streamNovel(nextPage, novelContent);
+    setIsGeneratingMore(false);
+  }, [currentPage, novelContent, streamNovel]);
+
+  // 生成剧本
+  const handleGenerateScript = useCallback(async () => {
+    setScriptContent("");
+    setCurrentPage(1);
+    setIsGeneratingMore(false);
+    setState("generating_script");
 
     try {
-      const res = await fetch("/api/generate-novel", {
+      const res = await fetch("/api/generate-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           genre: selectedGenre || "自定义创作",
-          wordCount: wordCount,
-          userIdea: userIdea,
-          page: nextPage,
-          previousContent: novelContent,
+          novelContent: novelContent,
+          page: 1,
         }),
       });
 
       if (!res.ok) {
+        setError("剧本生成失败");
         setState("novel_preview");
         return;
       }
@@ -175,9 +192,13 @@ export default function Home() {
 
           try {
             const parsed = JSON.parse(data);
-            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.error) {
+              setError(parsed.error);
+              setState("novel_preview");
+              return;
+            }
             if (parsed.content) {
-              setNovelContent((prev) => prev + parsed.content);
+              setScriptContent((prev) => prev + parsed.content);
             }
           } catch {
             // ignore
@@ -185,561 +206,257 @@ export default function Home() {
         }
       }
 
-      setState("novel_preview");
-      setIsGeneratingMore(false);
+      setState("done");
     } catch {
-      setState("novel_preview");
-      setIsGeneratingMore(false);
-    }
-  }, [selectedGenre, wordCount, userIdea, currentPage, novelContent]);
-
-  const handleSelectGenre = useCallback(async (genre: string) => {
-    setSelectedGenre(genre);
-    setNovelContent("");
-    setScriptContent("");
-    setState("generating_novel");
-
-    const finalWordCount = isCustomWordCount ? (parseInt(customWordCount, 10) || 2000) : wordCount;
-
-    try {
-      const res = await fetch("/api/generate-novel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ genre, wordCount: finalWordCount, userIdea }),
-      });
-
-      if (!res.ok || !res.body) {
-        throw new Error("生成请求失败");
-      }
-
-      setState("generating_novel");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let accumulated = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const text = decoder.decode(value, { stream: true });
-        const lines = text.split("\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const payload = line.slice(6).trim();
-            if (payload === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(payload);
-              if (parsed.content) {
-                accumulated += parsed.content;
-                setNovelContent(accumulated);
-              }
-            } catch {
-              // skip malformed chunks
-            }
-          }
-        }
-      }
-
-      setState("novel_preview");
-    } catch {
-      setNovelContent("生成小说时出现错误，请重试。");
+      setError("剧本生成失败");
       setState("novel_preview");
     }
-  }, []);
+  }, [selectedGenre, novelContent]);
 
-  const handleApproveNovel = useCallback(async () => {
-    setScriptContent("");
+  // 继续生成剧本
+  const handleContinueScript = useCallback(async () => {
+    const nextPage = currentPage + 1;
+    setCurrentPage(nextPage);
+    setIsGeneratingMore(true);
     setState("generating_script");
 
     try {
       const res = await fetch("/api/generate-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ genre: selectedGenre, novelContent }),
+        body: JSON.stringify({
+          genre: selectedGenre || "自定义创作",
+          novelContent: novelContent,
+          previousScript: scriptContent,
+          page: nextPage,
+        }),
       });
 
-      if (!res.ok || !res.body) {
-        throw new Error("生成请求失败");
+      if (!res.ok) {
+        setError("剧本生成失败");
+        setState("done");
+        return;
       }
 
-      const reader = res.body.getReader();
+      const reader = res.body?.getReader();
+      if (!reader) return;
+
       const decoder = new TextDecoder();
-      let accumulated = "";
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = decoder.decode(value, { stream: true });
-        const lines = text.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const payload = line.slice(6).trim();
-            if (payload === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(payload);
-              if (parsed.content) {
-                accumulated += parsed.content;
-                setScriptContent(accumulated);
-              }
-            } catch {
-              // skip malformed chunks
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error) {
+              setError(parsed.error);
+              setState("done");
+              return;
             }
+            if (parsed.content) {
+              setScriptContent((prev) => prev + parsed.content);
+            }
+          } catch {
+            // ignore
           }
         }
       }
 
       setState("done");
+      setIsGeneratingMore(false);
     } catch {
-      setScriptContent("生成剧本时出现错误，请重试。");
       setState("done");
+      setIsGeneratingMore(false);
     }
-  }, [selectedGenre, novelContent]);
+  }, [selectedGenre, novelContent, scriptContent, currentPage]);
 
-  const handleRejectNovel = useCallback(() => {
-    setNovelContent("");
-    setState("choosing");
-  }, []);
-
-  const handleCopy = useCallback(async () => {
-    const text = state === "done" ? scriptContent : novelContent;
+  // 复制到剪贴板
+  const handleCopy = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
+      // fallback
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
       document.execCommand("copy");
-      document.body.removeChild(textarea);
+      document.body.removeChild(ta);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [scriptContent, novelContent, state]);
+  }, []);
 
+  // 重新开始
   const handleReset = useCallback(() => {
-    setState("idle");
-    setGenres([]);
-    setSelectedGenre("");
-    setWordCount(2000);
-    setCustomWordCount("");
-    setIsCustomWordCount(false);
     setNovelContent("");
     setScriptContent("");
+    setSelectedGenre("");
+    setCurrentPage(1);
     setCopied(false);
+    setError("");
+    setState("choosing");
   }, []);
 
   return (
-    <main className="min-h-screen" style={{ backgroundColor: "#FAFAF8" }}>
-      <div className="mx-auto max-w-4xl px-6 py-16 md:py-24">
-        {/* Header */}
-        <header className="mb-16 text-center animate-fade-in-up">
-          <h1
-            className="text-3xl md:text-4xl font-bold tracking-tight mb-4"
-            style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
-          >
+    <div className="min-h-screen bg-[#FAFAF8]">
+      <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
+        {/* 标题 */}
+        <header className="text-center mb-12">
+          <h1 className="font-serif text-3xl sm:text-4xl text-[#2C2C2C] tracking-wide">
             漫剧剧本工坊
           </h1>
-          <p
-            className="text-base md:text-lg leading-relaxed max-w-lg mx-auto"
-            style={{ color: "#8A8A8A" }}
-          >
-            从热门题材到完整剧本，一键生成适合漫画与动画改编的小说剧本
+          <p className="mt-3 text-[#8A8A8A] text-sm tracking-wider">
+            选择类型或写下想法，AI 帮你创作
           </p>
         </header>
 
-        {/* Idle State */}
-        {state === "idle" && (
-          <div className="flex flex-col items-center animate-fade-in-up">
-            <button
-              onClick={handleSearchGenres}
-              className="group relative px-10 py-4 rounded-lg text-base font-medium transition-all duration-300 cursor-pointer"
-              style={{ backgroundColor: "#2C2C2C", color: "#FAFAF8" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "#B8977E";
-                e.currentTarget.style.transform = "translateY(-2px)";
-                e.currentTarget.style.boxShadow = "0 8px 24px rgba(184,151,126,0.25)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = "#2C2C2C";
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow = "none";
-              }}
-            >
-              获取热门小说类型
-            </button>
-            <p className="mt-6 text-sm" style={{ color: "#8A8A8A" }}>
-              点击按钮，联网搜索当前最火爆的小说题材
-            </p>
+        {/* 错误提示 */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            {error}
           </div>
         )}
 
-        {/* Searching State */}
-        {state === "searching" && (
-          <div className="flex flex-col items-center py-20 animate-fade-in">
-            <LoadingAnimation />
-            <p className="mt-8 text-base" style={{ color: "#8A8A8A" }}>
-              正在搜索当前热门小说类型...
-            </p>
-          </div>
-        )}
-
-        {/* Choosing State */}
+        {/* ===== 选择状态 ===== */}
         {state === "choosing" && (
-          <div className="animate-fade-in-up">
-            <div className="text-center mb-10">
-              <h2
-                className="text-xl md:text-2xl font-semibold mb-2"
-                style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
-              >
-                选择你感兴趣的类型
-              </h2>
-              <p className="text-sm" style={{ color: "#8A8A8A" }}>
-                先设置小说字数，再点击类型卡片生成
-              </p>
-            </div>
-
-            {/* Word Count Selector */}
-            <div className="mb-8">
-              <p
-                className="text-sm font-medium mb-3 text-center"
-                style={{ color: "#2C2C2C" }}
-              >
-                小说字数
-              </p>
-              <div className="flex flex-wrap justify-center gap-3">
-                {WORD_COUNT_OPTIONS.map((option) => {
-                  const isSelected = option.value === 0
-                    ? isCustomWordCount
-                    : !isCustomWordCount && wordCount === option.value;
-
-                  return (
-                    <button
-                      key={option.label}
-                      onClick={() => {
-                        if (option.value === 0) {
-                          setIsCustomWordCount(true);
-                        } else {
-                          setIsCustomWordCount(false);
-                          setWordCount(option.value);
-                        }
-                      }}
-                      className="px-5 py-2.5 rounded-md text-sm transition-all duration-200 cursor-pointer"
-                      style={{
-                        backgroundColor: isSelected ? "#2C2C2C" : "#F5F3EF",
-                        color: isSelected ? "#FAFAF8" : "#2C2C2C",
-                        border: `1px solid ${isSelected ? "#2C2C2C" : "#E8E4DE"}`,
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isSelected) {
-                          e.currentTarget.style.borderColor = "#B8977E";
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSelected) {
-                          e.currentTarget.style.borderColor = "#E8E4DE";
-                        }
-                      }}
-                    >
-                      <span className="font-medium">{option.label}</span>
-                      <span
-                        className="ml-1.5 text-xs"
-                        style={{
-                          color: isSelected ? "#B8B8B8" : "#8A8A8A",
-                        }}
-                      >
-                        {option.desc}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Custom Word Count Input */}
-              {isCustomWordCount && (
-                <div className="mt-4 flex justify-center animate-fade-in">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={customWordCount}
-                      onChange={(e) => setCustomWordCount(e.target.value)}
-                      placeholder="输入字数"
-                      min="500"
-                      max="20000"
-                      className="w-32 px-4 py-2 rounded-md text-sm text-center outline-none transition-all duration-200"
-                      style={{
-                        backgroundColor: "#F5F3EF",
-                        border: "1px solid #E8E4DE",
-                        color: "#2C2C2C",
-                      }}
-                      onFocus={(e) => {
-                        e.currentTarget.style.borderColor = "#B8977E";
-                      }}
-                      onBlur={(e) => {
-                        e.currentTarget.style.borderColor = "#E8E4DE";
-                      }}
-                    />
-                    <span className="text-sm" style={{ color: "#8A8A8A" }}>
-                      字（500-20000）
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* User Idea Input */}
-            <div className="mb-8 max-w-2xl mx-auto">
-              <p
-                className="text-sm font-medium mb-3 text-center"
-                style={{ color: "#2C2C2C" }}
-              >
-                你的创意想法（选填）
-              </p>
+          <div className="space-y-8">
+            {/* 想法输入框 */}
+            <div className="bg-[#F5F3EF] rounded-xl p-5 border border-[#E8E4DE]">
+              <label className="block text-sm text-[#8A8A8A] mb-3">
+                你的想法（可选）
+              </label>
               <textarea
                 value={userIdea}
                 onChange={(e) => setUserIdea(e.target.value)}
                 placeholder="写下你的想法，比如：主角是一个失忆的杀手，穿越到古代发现自己是预言中的救世主... 不填则 AI 自由创作"
-                rows={4}
-                className="w-full px-4 py-3 rounded-md text-sm resize-none outline-none transition-all duration-200"
-                style={{
-                  backgroundColor: "#F5F3EF",
-                  border: "1px solid #E8E4DE",
-                  color: "#2C2C2C",
-                  lineHeight: "1.6",
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = "#B8977E";
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = "#E8E4DE";
-                }}
+                className="w-full min-h-[100px] bg-white border border-[#E8E4DE] rounded-lg p-4 text-sm text-[#2C2C2C] placeholder:text-[#B8B8B8] focus:outline-none focus:border-[#B8977E] transition-colors resize-y"
               />
-              <div className="flex items-center justify-between mt-3">
-                <p className="text-xs" style={{ color: "#8A8A8A" }}>
-                  {userIdea.length} 字，不限字数
-                </p>
-                <button
-                  onClick={handleDirectGenerate}
-                  disabled={!userIdea.trim()}
-                  className="px-5 py-2 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{
-                    backgroundColor: "#B8977E",
-                    color: "#FAFAF8",
-                    border: "none",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (userIdea.trim()) {
-                      e.currentTarget.style.backgroundColor = "#A6826A";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "#B8977E";
-                  }}
-                >
-                  直接生成
-                </button>
-              </div>
-            </div>
-
-            <GenreCards genres={genres} onSelect={handleSelectGenre} />
-          </div>
-        )}
-
-        {/* Generating Novel State */}
-        {state === "generating_novel" && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <p
-                className="text-lg font-medium mb-1"
-                style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
-              >
-                正在创作「{selectedGenre}」小说
-              </p>
-              <p className="text-sm" style={{ color: "#8A8A8A" }}>
-                正在联网搜索爆火小说，解析核心要素...
-              </p>
-            </div>
-            <ScriptDisplay content={novelContent} isStreaming={true} />
-          </div>
-        )}
-
-        {/* Novel Preview State - with approve/reject buttons */}
-        {state === "novel_preview" && (
-          <div className="animate-fade-in">
-            {/* Action Buttons */}
-            <div
-              className="flex items-center justify-center gap-4 mb-8 p-5 rounded-lg"
-              style={{ backgroundColor: "#F5F3EF", border: "1px solid #E8E4DE" }}
-            >
               <button
-                onClick={handleRejectNovel}
-                className="px-6 py-2.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer"
-                style={{
-                  backgroundColor: "#FEE2E2",
-                  color: "#DC2626",
-                  border: "1px solid #FECACA",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#DC2626";
-                  e.currentTarget.style.color = "#FFFFFF";
-                  e.currentTarget.style.borderColor = "#DC2626";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "#FEE2E2";
-                  e.currentTarget.style.color = "#DC2626";
-                  e.currentTarget.style.borderColor = "#FECACA";
-                }}
+                onClick={handleDirectGenerate}
+                disabled={!userIdea.trim()}
+                className="mt-3 px-6 py-2.5 bg-[#B8977E] text-white rounded-lg text-sm hover:bg-[#A8846A] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
               >
-                不满意，换一个
+                直接生成
               </button>
-              {/* 继续生成按钮 */}
+            </div>
+
+            {/* 分隔线 */}
+            <div className="flex items-center gap-4">
+              <div className="flex-1 h-px bg-[#E8E4DE]" />
+              <span className="text-xs text-[#B8B8B8]">或选择类型</span>
+              <div className="flex-1 h-px bg-[#E8E4DE]" />
+            </div>
+
+            {/* 类型卡片 */}
+            <GenreCards
+              genres={genres}
+              onSelect={handleSelectGenre}
+            />
+          </div>
+        )}
+
+        {/* ===== 生成中 ===== */}
+        {state === "generating_novel" && (
+          <div className="text-center py-20">
+            <LoadingAnimation />
+            <p className="mt-4 text-[#8A8A8A] text-sm">
+              {isGeneratingMore
+                ? `正在续写第 ${currentPage} 页...`
+                : "正在构思小说..."}
+            </p>
+          </div>
+        )}
+
+        {/* ===== 小说预览 ===== */}
+        {state === "novel_preview" && novelContent && (
+          <div className="space-y-6">
+            {/* 操作按钮 */}
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                 onClick={handleContinueGenerate}
-                className="px-6 py-2.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer"
-                style={{
-                  backgroundColor: "#FEF3C7",
-                  color: "#D97706",
-                  border: "1px solid #FDE68A",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#D97706";
-                  e.currentTarget.style.color = "#FFFFFF";
-                  e.currentTarget.style.borderColor = "#D97706";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "#FEF3C7";
-                  e.currentTarget.style.color = "#D97706";
-                  e.currentTarget.style.borderColor = "#FDE68A";
-                }}
+                className="px-6 py-2.5 bg-[#B8977E] text-white rounded-lg text-sm hover:bg-[#A8846A] transition-all"
               >
-                继续生成（第{currentPage}页）
+                继续生成（第 {currentPage + 1} 页）
               </button>
               <button
-                onClick={handleApproveNovel}
-                className="px-6 py-2.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer"
-                style={{
-                  backgroundColor: "#DCFCE7",
-                  color: "#16A34A",
-                  border: "1px solid #BBF7D0",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#16A34A";
-                  e.currentTarget.style.color = "#FFFFFF";
-                  e.currentTarget.style.borderColor = "#16A34A";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "#DCFCE7";
-                  e.currentTarget.style.color = "#16A34A";
-                  e.currentTarget.style.borderColor = "#BBF7D0";
-                }}
+                onClick={handleGenerateScript}
+                className="px-6 py-2.5 bg-[#5B8C5A] text-white rounded-lg text-sm hover:bg-[#4A7A49] transition-all"
               >
                 满意，生成剧本
               </button>
+              <button
+                onClick={handleReset}
+                className="px-6 py-2.5 bg-white text-[#8A8A8A] border border-[#E8E4DE] rounded-lg text-sm hover:bg-[#F5F3EF] transition-all"
+              >
+                不满意，重新选
+              </button>
             </div>
 
-            {/* Novel Content */}
-            <div className="mb-4">
-              <h2
-                className="text-lg font-semibold mb-1"
-                style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
-              >
-                「{selectedGenre}」小说预览
-              </h2>
-              <p className="text-xs mb-4" style={{ color: "#8A8A8A" }}>
-                阅读上方小说内容，满意请点击绿色按钮生成剧本，不满意点击红色按钮重新生成
-              </p>
+            {/* 小说内容 */}
+            <div className="bg-white border border-[#E8E4DE] rounded-xl p-6 sm:p-8">
+              <ScriptDisplay content={novelContent} isStreaming={false} />
             </div>
-            <ScriptDisplay content={novelContent} isStreaming={false} />
           </div>
         )}
 
-        {/* Generating Script State */}
+        {/* ===== 生成剧本中 ===== */}
         {state === "generating_script" && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <p
-                className="text-lg font-medium mb-1"
-                style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
-              >
-                正在基于小说生成「{selectedGenre}」剧本
-              </p>
-              <p className="text-sm" style={{ color: "#8A8A8A" }}>
-                AI 正在改编分镜、设计场景与对话...
-              </p>
-            </div>
-            <ScriptDisplay content={scriptContent} isStreaming={true} />
+          <div className="text-center py-20">
+            <LoadingAnimation />
+            <p className="mt-4 text-[#8A8A8A] text-sm">
+              {isGeneratingMore
+                ? `正在续写剧本第 ${currentPage} 页...`
+                : "正在改编剧本..."}
+            </p>
           </div>
         )}
 
-        {/* Done State - Script Complete */}
-        {state === "done" && (
-          <div className="animate-fade-in">
-            <div className="flex items-center justify-between mb-6">
-              <h2
-                className="text-lg font-semibold"
-                style={{ color: "#2C2C2C", fontFamily: "'Noto Serif SC', serif" }}
+        {/* ===== 完成 ===== */}
+        {state === "done" && scriptContent && (
+          <div className="space-y-6">
+            {/* 操作按钮 */}
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={handleContinueScript}
+                className="px-6 py-2.5 bg-[#B8977E] text-white rounded-lg text-sm hover:bg-[#A8846A] transition-all"
               >
-                「{selectedGenre}」漫剧剧本
-              </h2>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleCopy}
-                  className="px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer"
-                  style={{
-                    backgroundColor: copied ? "#B8977E" : "#F5F3EF",
-                    color: copied ? "#FAFAF8" : "#2C2C2C",
-                    border: "1px solid #E8E4DE",
-                  }}
-                >
-                  {copied ? "已复制" : "复制全文"}
-                </button>
-                <button
-                  onClick={handleContinueGenerate}
-                  className="px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer"
-                  style={{
-                    backgroundColor: "#FEF3C7",
-                    color: "#D97706",
-                    border: "1px solid #FDE68A",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "#D97706";
-                    e.currentTarget.style.color = "#FFFFFF";
-                    e.currentTarget.style.borderColor = "#D97706";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "#FEF3C7";
-                    e.currentTarget.style.color = "#D97706";
-                    e.currentTarget.style.borderColor = "#FDE68A";
-                  }}
-                >
-                  继续生成剧本（第{currentPage}页）
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer"
-                  style={{ backgroundColor: "#2C2C2C", color: "#FAFAF8" }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "#B8977E";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "#2C2C2C";
-                  }}
-                >
-                  重新开始
-                </button>
-              </div>
+                继续生成剧本（第 {currentPage + 1} 页）
+              </button>
+              <button
+                onClick={() => handleCopy(scriptContent)}
+                className="px-6 py-2.5 bg-white text-[#2C2C2C] border border-[#E8E4DE] rounded-lg text-sm hover:bg-[#F5F3EF] transition-all"
+              >
+                {copied ? "已复制 ✓" : "复制全文"}
+              </button>
+              <button
+                onClick={handleReset}
+                className="px-6 py-2.5 bg-white text-[#8A8A8A] border border-[#E8E4DE] rounded-lg text-sm hover:bg-[#F5F3EF] transition-all"
+              >
+                重新开始
+              </button>
             </div>
-            <ScriptDisplay content={scriptContent} isStreaming={false} />
+
+            {/* 剧本内容 */}
+            <div className="bg-white border border-[#E8E4DE] rounded-xl p-6 sm:p-8">
+              <ScriptDisplay content={scriptContent} isStreaming={false} />
+            </div>
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }
-
-
