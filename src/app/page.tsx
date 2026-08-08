@@ -28,19 +28,25 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isGeneratingMore, setIsGeneratingMore] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const [trending, setTrending] = useState<{ title: string; snippet: string }[]>([]);
 
-  // 页面加载时自动获取热门类型
+  // 页面加载时自动获取热门类型 + 搜索热门小说
   useEffect(() => {
     fetch("/api/search-genres", { method: "POST" })
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && data.results?.length > 0) {
-          setGenres(
-            data.results.map((item: { title: string; snippet: string }) => ({
-              name: item.title,
-              description: item.snippet,
-            }))
-          );
+        if (data.success) {
+          if (data.genres?.length > 0) {
+            setGenres(
+              data.genres.map((item: { title: string; snippet: string }) => ({
+                name: item.title,
+                description: item.snippet,
+              }))
+            );
+          }
+          if (data.trending?.length > 0) {
+            setTrending(data.trending);
+          }
         }
       })
       .catch(() => {});
@@ -333,39 +339,76 @@ export default function Home() {
 
         {/* ===== 选择状态 ===== */}
         {state === "choosing" && (
-          <div className="space-y-8">
-            {/* 想法输入框 */}
-            <div className="bg-[#F5F3EF] rounded-xl p-5 border border-[#E8E4DE]">
-              <label className="block text-sm text-[#8A8A8A] mb-3">
-                你的想法（可选）
-              </label>
-              <textarea
-                value={userIdea}
-                onChange={(e) => setUserIdea(e.target.value)}
-                placeholder="写下你的想法，比如：主角是一个失忆的杀手，穿越到古代发现自己是预言中的救世主... 不填则 AI 自由创作"
-                className="w-full min-h-[100px] bg-white border border-[#E8E4DE] rounded-lg p-4 text-sm text-[#2C2C2C] placeholder:text-[#B8B8B8] focus:outline-none focus:border-[#B8977E] transition-colors resize-y"
+          <div className="flex flex-col lg:flex-row gap-8">
+            {/* 左侧主区域 */}
+            <div className="flex-1 space-y-8 min-w-0">
+              {/* 想法输入框 */}
+              <div className="bg-[#F5F3EF] rounded-xl p-5 border border-[#E8E4DE]">
+                <label className="block text-sm text-[#8A8A8A] mb-3">
+                  你的想法（可选）
+                </label>
+                <textarea
+                  value={userIdea}
+                  onChange={(e) => setUserIdea(e.target.value)}
+                  placeholder="写下你的想法，比如：主角是一个失忆的杀手，穿越到古代发现自己是预言中的救世主... 不填则 AI 自由创作"
+                  className="w-full min-h-[100px] bg-white border border-[#E8E4DE] rounded-lg p-4 text-sm text-[#2C2C2C] placeholder:text-[#B8B8B8] focus:outline-none focus:border-[#B8977E] transition-colors resize-y"
+                />
+                <button
+                  onClick={handleDirectGenerate}
+                  disabled={!userIdea.trim()}
+                  className="mt-3 px-6 py-2.5 bg-[#B8977E] text-white rounded-lg text-sm hover:bg-[#A8846A] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  直接生成
+                </button>
+              </div>
+
+              {/* 分隔线 */}
+              <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-[#E8E4DE]" />
+                <span className="text-xs text-[#B8B8B8]">或选择类型</span>
+                <div className="flex-1 h-px bg-[#E8E4DE]" />
+              </div>
+
+              {/* 类型卡片 */}
+              <GenreCards
+                genres={genres}
+                onSelect={handleSelectGenre}
               />
-              <button
-                onClick={handleDirectGenerate}
-                disabled={!userIdea.trim()}
-                className="mt-3 px-6 py-2.5 bg-[#B8977E] text-white rounded-lg text-sm hover:bg-[#A8846A] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-              >
-                直接生成
-              </button>
             </div>
 
-            {/* 分隔线 */}
-            <div className="flex items-center gap-4">
-              <div className="flex-1 h-px bg-[#E8E4DE]" />
-              <span className="text-xs text-[#B8B8B8]">或选择类型</span>
-              <div className="flex-1 h-px bg-[#E8E4DE]" />
-            </div>
-
-            {/* 类型卡片 */}
-            <GenreCards
-              genres={genres}
-              onSelect={handleSelectGenre}
-            />
+            {/* 右侧热门趋势侧边栏 */}
+            {trending && trending.length > 0 && (
+              <div className="w-full lg:w-80 shrink-0">
+                <div className="bg-[#F5F3EF] rounded-xl p-5 border border-[#E8E4DE] sticky top-6">
+                  <h3 className="text-sm font-medium text-[#2C2C2C] mb-4 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#B8977E] animate-pulse" />
+                    当前热门趋势
+                  </h3>
+                  <div className="space-y-3">
+                    {trending.map((item: { title: string; snippet: string }, idx: number) => (
+                      <div
+                        key={idx}
+                        className="bg-white rounded-lg p-3 border border-[#E8E4DE]"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="text-xs text-[#B8977E] font-medium mt-0.5 shrink-0">
+                            #{idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm text-[#2C2C2C] font-medium line-clamp-2">
+                              {item.title}
+                            </p>
+                            <p className="text-xs text-[#8A8A8A] mt-1 line-clamp-3">
+                              {item.snippet}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

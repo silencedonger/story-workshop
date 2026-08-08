@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Config, SearchClient, HeaderUtils } from "coze-coding-dev-sdk";
 
-// 内置的热门小说类型（降级方案）
+// 内置的热门小说类型（始终显示在中间）
 const BUILTIN_GENRES = [
   { title: "都市爽文", snippet: "底层逆袭、商业对决、强者归来，快节奏高爽点，都市背景下的热血传奇。", tags: ["逆袭", "商战", "强者归来"] },
   { title: "甜宠言情", snippet: "甜甜的恋爱、命中注定的相遇，温暖治愈的情感故事，让人心动不已。", tags: ["恋爱", "治愈", "日常"] },
@@ -30,31 +30,28 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // 提取搜索结果中的小说信息
+    // 提取搜索结果中的热门小说信息（放侧边栏展示）
     const webItems = searchResult.web_items || [];
-    const searchContext = webItems
-      .map((item: { title: string; snippet: string }) => `${item.title}: ${item.snippet}`)
-      .join("\n");
-
-    // 返回搜索结果和摘要，前端展示
-    const results = webItems.slice(0, 8).map((item: { title: string; snippet: string }) => ({
+    const trendingNovels = webItems.slice(0, 10).map((item: { title: string; snippet: string }) => ({
       title: item.title,
-      snippet: item.snippet.slice(0, 120),
+      snippet: item.snippet.slice(0, 150),
     }));
 
     return NextResponse.json({
       success: true,
+      genres: BUILTIN_GENRES,           // 中间展示的8个类型
+      trending: trendingNovels,          // 侧边栏展示的热门小说
       summary: searchResult.summary || "",
-      results,
-      searchContext,
+      searchContext: trendingNovels.map((n: { title: string; snippet: string }) => `${n.title}: ${n.snippet}`).join("\n"),
     });
   } catch (error) {
-    // 搜索失败时返回内置数据
-    console.error("Search error, using fallback:", error);
+    // 搜索失败时，侧边栏为空，中间仍显示8个类型
+    console.error("Search error:", error);
     return NextResponse.json({
       success: true,
+      genres: BUILTIN_GENRES,
+      trending: [],
       summary: "",
-      results: BUILTIN_GENRES,
       searchContext: "",
       fallback: true,
     });
