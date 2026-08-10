@@ -12,6 +12,16 @@ type AppState =
   | "generating_script"
   | "done";
 
+interface TrendingItem {
+  title: string;
+  author: string;
+  snippet: string;
+  summary: string;
+  characters: string;
+  whyPopular: string;
+  learnFrom: string;
+}
+
 interface GenreItem {
   name: string;
   description: string;
@@ -28,7 +38,8 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isGeneratingMore, setIsGeneratingMore] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
-  const [trending, setTrending] = useState<{ title: string; snippet: string }[]>([]);
+  const [trending, setTrending] = useState<TrendingItem[]>([]);
+  const [selectedTrending, setSelectedTrending] = useState<TrendingItem | null>(null);
 
   // 页面加载时自动获取热门类型 + 搜索热门小说
   useEffect(() => {
@@ -385,10 +396,11 @@ export default function Home() {
                     当前热门趋势
                   </h3>
                   <div className="space-y-3">
-                    {trending.map((item: { title: string; snippet: string }, idx: number) => (
-                      <div
+                    {trending.map((item: TrendingItem, idx: number) => (
+                      <button
                         key={idx}
-                        className="bg-white rounded-lg p-3 border border-[#E8E4DE]"
+                        onClick={() => setSelectedTrending(item)}
+                        className="w-full text-left bg-white rounded-lg p-3 border border-[#E8E4DE] hover:border-[#B8977E] hover:shadow-sm transition-all cursor-pointer"
                       >
                         <div className="flex items-start gap-2">
                           <span className="text-xs text-[#B8977E] font-medium mt-0.5 shrink-0">
@@ -398,14 +410,98 @@ export default function Home() {
                             <p className="text-sm text-[#2C2C2C] font-medium line-clamp-2">
                               {item.title}
                             </p>
-                            <p className="text-xs text-[#8A8A8A] mt-1 line-clamp-3">
+                            {item.author && (
+                              <p className="text-xs text-[#B8977E] mt-0.5">
+                                {item.author}
+                              </p>
+                            )}
+                            <p className="text-xs text-[#8A8A8A] mt-1 line-clamp-2">
                               {item.snippet}
                             </p>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
+                  <p className="text-xs text-[#8A8A8A] mt-3 text-center">
+                    点击查看详情
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 热门小说详情弹窗 */}
+            {selectedTrending && (
+              <div
+                className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+                onClick={() => setSelectedTrending(null)}
+              >
+                <div
+                  className="bg-white rounded-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto p-6 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-medium text-[#2C2C2C]">
+                        {selectedTrending.title}
+                      </h3>
+                      {selectedTrending.author && (
+                        <p className="text-sm text-[#B8977E] mt-1">
+                          作者：{selectedTrending.author}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setSelectedTrending(null)}
+                      className="text-[#8A8A8A] hover:text-[#2C2C2C] text-xl leading-none p-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {selectedTrending.snippet && (
+                    <div className="mb-4">
+                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
+                        小说简介
+                      </h4>
+                      <p className="text-sm text-[#2C2C2C] leading-relaxed">
+                        {selectedTrending.snippet}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedTrending.characters && (
+                    <div className="mb-4">
+                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
+                        人物人设
+                      </h4>
+                      <p className="text-sm text-[#2C2C2C] leading-relaxed whitespace-pre-line">
+                        {selectedTrending.characters}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedTrending.whyPopular && (
+                    <div className="mb-4">
+                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
+                        爆火原因
+                      </h4>
+                      <p className="text-sm text-[#2C2C2C] leading-relaxed">
+                        {selectedTrending.whyPopular}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedTrending.learnFrom && (
+                    <div>
+                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
+                        可借鉴的点
+                      </h4>
+                      <p className="text-sm text-[#2C2C2C] leading-relaxed">
+                        {selectedTrending.learnFrom}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
