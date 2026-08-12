@@ -35,11 +35,21 @@ export default function Home() {
   const [scriptContent, setScriptContent] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [userIdea, setUserIdea] = useState<string>("");
+  const [wordCount, setWordCount] = useState<number>(2000);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isGeneratingMore, setIsGeneratingMore] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [trending, setTrending] = useState<TrendingItem[]>([]);
   const [selectedTrending, setSelectedTrending] = useState<TrendingItem | null>(null);
+
+  // 字数选项
+  const WORD_COUNT_OPTIONS = [
+    { label: "短篇", value: 1000 },
+    { label: "中篇", value: 2000 },
+    { label: "长篇", value: 3000 },
+    { label: "超长", value: 5000 },
+    { label: "巨篇", value: 8000 },
+  ];
 
   // 页面加载时自动获取热门类型 + 搜索热门小说
   useEffect(() => {
@@ -64,15 +74,16 @@ export default function Home() {
   }, []);
 
   const streamNovel = useCallback(
-    async (page: number, previousContent: string) => {
+    async (page: number, previousContent: string, genreOverride?: string, ideaOverride?: string) => {
       setError("");
       try {
         const res = await fetch("/api/generate-novel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            genre: selectedGenre || "自定义创作",
-            userIdea: userIdea.trim() || undefined,
+            genre: genreOverride || selectedGenre || "自定义创作",
+            userIdea: (ideaOverride ?? userIdea).trim() || undefined,
+            wordCount,
             page,
             previousContent: previousContent || undefined,
           }),
@@ -125,7 +136,7 @@ export default function Home() {
         setState("choosing");
       }
     },
-    [selectedGenre, userIdea]
+    [selectedGenre, userIdea, wordCount]
   );
 
   // 选择类型后生成小说
@@ -137,9 +148,9 @@ export default function Home() {
       setCurrentPage(1);
       setIsGeneratingMore(false);
       setState("generating_novel");
-      await streamNovel(1, "");
+      await streamNovel(1, "", genre, userIdea);
     },
-    [streamNovel]
+    [streamNovel, userIdea]
   );
 
   // 直接生成（跳过选类型，用想法生成）
@@ -151,7 +162,7 @@ export default function Home() {
     setCurrentPage(1);
     setIsGeneratingMore(false);
     setState("generating_novel");
-    await streamNovel(1, "");
+    await streamNovel(1, "", "自定义创作", userIdea);
   }, [userIdea, streamNovel]);
 
   // 继续生成（无限续写）
@@ -160,9 +171,9 @@ export default function Home() {
     setCurrentPage(nextPage);
     setIsGeneratingMore(true);
     setState("generating_novel");
-    await streamNovel(nextPage, novelContent);
+    await streamNovel(nextPage, novelContent, selectedGenre, userIdea);
     setIsGeneratingMore(false);
-  }, [currentPage, novelContent, streamNovel]);
+  }, [currentPage, novelContent, streamNovel, selectedGenre, userIdea]);
 
   // 生成剧本
   const handleGenerateScript = useCallback(async () => {
@@ -378,6 +389,31 @@ export default function Home() {
                 <div className="flex-1 h-px bg-[#E8E4DE]" />
                 <span className="text-xs text-[#B8B8B8]">或选择类型</span>
                 <div className="flex-1 h-px bg-[#E8E4DE]" />
+              </div>
+
+              {/* 字数选择 */}
+              <div>
+                <label className="block text-sm text-[#8A8A8A] mb-3">
+                  每页字数
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {[2000, 5000, 8000, 15000, 20000].map((count) => (
+                    <button
+                      key={count}
+                      onClick={() => setWordCount(count)}
+                      className={`px-4 py-2 rounded-lg text-sm transition-all ${
+                        wordCount === count
+                          ? "bg-[#B8977E] text-white"
+                          : "bg-[#F5F3EF] text-[#2C2C2C] hover:bg-[#E8E4DE] border border-[#E8E4DE]"
+                      }`}
+                    >
+                      {count >= 10000 ? `${count / 10000}万` : `${count / 1000}千`}字
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-[#B8B8B8] mt-2">
+                  生成完后可点击「继续生成」无限续写
+                </p>
               </div>
 
               {/* 类型卡片 */}
