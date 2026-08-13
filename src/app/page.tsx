@@ -20,6 +20,8 @@ interface TrendingItem {
   characters: string;
   whyPopular: string;
   learnFrom: string;
+  detail: string;
+  type: 'hot' | 'rising' | 'new';
 }
 
 interface GenreItem {
@@ -466,76 +468,40 @@ export default function Home() {
               </div>
             )}
 
-            {/* 热门小说详情弹窗 */}
+            {/* 热门小说详情页（全屏） */}
             {selectedTrending && (
-              <div
-                className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
-                onClick={() => setSelectedTrending(null)}
-              >
-                <div
-                  className="bg-white rounded-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto p-6 shadow-xl"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="text-lg font-medium text-[#2C2C2C]">
-                        {selectedTrending.title}
-                      </h3>
-                      {selectedTrending.author && (
-                        <p className="text-sm text-[#B8977E] mt-1">
-                          作者：{selectedTrending.author}
-                        </p>
-                      )}
-                    </div>
+              <div className="fixed inset-0 bg-[#FAFAF8] z-50 overflow-y-auto">
+                <div className="max-w-3xl mx-auto px-6 py-8">
+                  {/* 顶部导航 */}
+                  <div className="flex items-center justify-between mb-8">
                     <button
                       onClick={() => setSelectedTrending(null)}
-                      className="text-[#8A8A8A] hover:text-[#2C2C2C] text-xl leading-none p-1"
+                      className="inline-flex items-center gap-1 text-sm text-[#8A8A8A] hover:text-[#2C2C2C] transition-colors"
                     >
-                      ✕
+                      <span>←</span>
+                      <span>返回</span>
                     </button>
+                    <span className="text-xs text-[#8A8A8A]">
+                      {selectedTrending.type === 'hot' ? '🔥 热门爆火' : selectedTrending.type === 'rising' ? '📈 急速上升' : '✨ 新作热门'}
+                    </span>
                   </div>
 
-                  {selectedTrending.snippet && (
-                    <div className="mb-4">
-                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
-                        小说简介
-                      </h4>
-                      <p className="text-sm text-[#2C2C2C] leading-relaxed">
-                        {selectedTrending.snippet}
+                  {/* 标题区 */}
+                  <div className="mb-8">
+                    <h1 className="text-3xl font-serif font-bold text-[#2C2C2C] mb-2">
+                      {selectedTrending.title}
+                    </h1>
+                    {selectedTrending.author && (
+                      <p className="text-base text-[#B8977E]">
+                        作者：{selectedTrending.author}
                       </p>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                  {selectedTrending.characters && (
-                    <div className="mb-4">
-                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
-                        人物人设
-                      </h4>
-                      <p className="text-sm text-[#2C2C2C] leading-relaxed whitespace-pre-line">
-                        {selectedTrending.characters}
-                      </p>
-                    </div>
-                  )}
-
-                  {selectedTrending.whyPopular && (
-                    <div className="mb-4">
-                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
-                        爆火原因
-                      </h4>
-                      <p className="text-sm text-[#2C2C2C] leading-relaxed">
-                        {selectedTrending.whyPopular}
-                      </p>
-                    </div>
-                  )}
-
-                  {selectedTrending.learnFrom && (
-                    <div>
-                      <h4 className="text-xs font-medium text-[#8A8A8A] uppercase tracking-wider mb-1">
-                        可借鉴的点
-                      </h4>
-                      <p className="text-sm text-[#2C2C2C] leading-relaxed">
-                        {selectedTrending.learnFrom}
-                      </p>
+                  {/* 详细内容 */}
+                  {selectedTrending.detail && (
+                    <div className="prose prose-sm max-w-none text-[#2C2C2C] leading-relaxed whitespace-pre-line text-base">
+                      {selectedTrending.detail}
                     </div>
                   )}
                 </div>
